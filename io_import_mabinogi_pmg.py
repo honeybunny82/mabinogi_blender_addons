@@ -1,7 +1,7 @@
 bl_info= {
     "name": "Import Mabinogi Pleione Mesh Group",
-    "author": "Tachiorz",
-    "version": (0, 1),
+    "author": "Honeybunny82",
+    "version": (0, 2),
     "blender": (2, 5, 7),
     "location": "File > Import > Mabinogi Mesh Group (.pmg)",
     "description": "Imports a Mabinogi Mesh Group file",
@@ -53,6 +53,7 @@ class MabinogiMesh:
     skinArray = list()
     physicsArray = list()
     morphFrameSize = 0
+    morphFrameCount = 0
     morphFrames = ""  # placeholder, not used
 
 def load_matrix4x4(file):
@@ -77,7 +78,7 @@ def save_quaternion(file,q ):
 
 def load_lpstring(file):
     l = struct.unpack("<i", file.read(4))[0]
-    return struct.unpack("<%ds" % l, file.read(l))[0].strip(b'\0').decode('ascii')
+    return struct.unpack("<%ds" % l, file.read(l))[0].strip(b'\0').decode('utf-8')
 
 def load_vertex(file):
     new_v = Vertex()
@@ -114,7 +115,7 @@ def load_pmbody17(file, pm):
         pm.physicsArray.append(struct.unpack("<32s", file.read(32)))
     if pm.isAnimated != 0:
         unk = struct.unpack("<i", file.read(4))[0]
-        pm.morphFrames = file.read(pm.morphFrameSize)
+        pm.morphFrames = file.read(pm.morphFrameSize * pm.morphFrameCount + 80 )
     return pm
 
 def load_pm17(file):
@@ -122,7 +123,6 @@ def load_pm17(file):
     pm_size, full_name, mesh_name = struct.unpack("<i32s128s", file.read(164))
     pm.bone_name = full_name.strip(b'\0').decode('ascii')  # todo: refactor bone_name - full_name
     pm.mesh_name = mesh_name.strip(b'\0').decode('ascii')
-    print (pm.mesh_name, pm.bone_name)
     joint_name, state_name, norm_name, color_name = struct.unpack("32s32s32s32s", file.read(128))
     pm.MinorMatrix = load_matrix4x4(file)
     pm.MajorMatrix = load_matrix4x4(file)
@@ -131,7 +131,7 @@ def load_pm17(file):
     v = load_vertex(file)
     pm.faceVertexCount, pm.faceCount, pm.stripFaceVertexCount = struct.unpack("<iii", file.read(12))
     pm.stripFaceCount, pm.vertCount, pm.skinCount = struct.unpack("<iii", file.read(12))  # todo: refactor skin - weld
-    pm.physicsCount, pm.isAnimated, pm.morphFrameSize, morphFrameCount = struct.unpack("<iiii", file.read(16))
+    pm.physicsCount, pm.isAnimated, pm.morphFrameSize, pm.morphFrameCount = struct.unpack("<iiii", file.read(16))
     file.seek(16,1)
     f, faceSize, stripFaceSize, meshSize, skinSize, physicsSize = struct.unpack("<iiiiii", file.read(24))
     pm = load_pmbody17(file, pm)
@@ -147,7 +147,7 @@ def load_pm20(file, pm_version=2):
     file.seek(36,1)
     pm.faceVertexCount, pm.faceCount, pm.stripFaceVertexCount = struct.unpack("<iii", file.read(12))
     pm.stripFaceCount, pm.vertCount, pm.skinCount = struct.unpack("<iii", file.read(12))
-    pm.physicsCount, pm.isAnimated, pm.morphFrameSize, morphFrameCount = struct.unpack("<iiii", file.read(16))
+    pm.physicsCount, pm.isAnimated, pm.morphFrameSize, pm.morphFrameCount = struct.unpack("<iiii", file.read(16))
     file.seek(16,1)
     f, faceSize, stripFaceSize, meshSize, skinSize, physicsSize = struct.unpack("<iiiiii", file.read(24))
     pm.bone_name = load_lpstring(file)
@@ -180,7 +180,6 @@ def load_pmg(filename,
     name, ext= os.path.splitext(os.path.basename(filename))
     file= open(filename, 'rb')
 
-
     try:
         magic, version, head_size, mesh_name, subgroup_count = struct.unpack("<4shi128si", file.read(142))
     except:
@@ -211,7 +210,7 @@ def load_pmg(filename,
         for i in range(pm_subgroups_count[sg]):
             pm_magic, pm_version = struct.unpack("<4sh", file.read(6))
             if pm_magic != b'pm!\x00':
-                print("Not a supported pm type!")
+                print("Not a supported pm type!" , pm_magic)
                 file.close()
                 return
             if pm_version not in (1793, 2, 3):
