@@ -344,6 +344,7 @@ def load_pmg(filename,
             bpy.ops.mesh.remove_doubles(threshold=0.1)
             bpy.ops.object.mode_set(mode='OBJECT')
             prev_ob = ob
+
         # add armature modifiers
         for v in prev_ob.vertex_groups:
             m = prev_ob.modifiers.new(v.name, 'ARMATURE')
@@ -372,12 +373,13 @@ class IMPORT_MABINOGI_pmg(bpy.types.Operator):
     def execute(self, context):
         load_pmg(self.filepath,
                  context)
+        bpy.ops.object.select_all(action='SELECT');
         bpy.ops.transform.resize(value=(0.01,0.01,0.01))
         bpy.ops.transform.rotate(value=1.5708, axis=(1,0,0))
         bpy.ops.transform.mirror(constraint_axis=(True, False, False))
-        bpy.context.object.location[0]= 0
-        bpy.context.object.location[1]= 0
-        bpy.context.object.location[2]= 0
+        bpy.context.area.type = 'VIEW_3D'
+        bpy.ops.view3d.snap_selected_to_cursor(use_offset=True)
+
 
         return {'FINISHED'}
 
