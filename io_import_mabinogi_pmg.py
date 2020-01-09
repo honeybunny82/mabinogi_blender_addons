@@ -1,7 +1,7 @@
 bl_info= {
     "name": "Import Mabinogi Pleione Mesh Group",
     "author": "Honeybunny82",
-    "version": (0, 2),
+    "version": (0, 3),
     "blender": (2, 5, 7),
     "location": "File > Import > Mabinogi Mesh Group (.pmg)",
     "description": "Imports a Mabinogi Mesh Group file",
@@ -372,6 +372,13 @@ class IMPORT_MABINOGI_pmg(bpy.types.Operator):
     def execute(self, context):
         load_pmg(self.filepath,
                  context)
+        bpy.ops.transform.resize(value=(0.01,0.01,0.01))
+        bpy.ops.transform.rotate(value=1.5708, axis=(1,0,0))
+        bpy.ops.transform.mirror(constraint_axis=(True, False, False))
+        bpy.context.object.location[0]= 0
+        bpy.context.object.location[1]= 0
+        bpy.context.object.location[2]= 0
+
         return {'FINISHED'}
 
     def invoke(self, context, event):
