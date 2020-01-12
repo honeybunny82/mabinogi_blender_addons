@@ -250,6 +250,7 @@ def load_pmg(filename,
             sel_ob = None
     scn = context.scene
     prev_ob = None
+    import_list = []
     for sgi in range(len(pm_subgroups)):
         pm = pm_subgroups[sgi]
         if prev_ob is not None:
@@ -351,10 +352,32 @@ def load_pmg(filename,
             m.object = sel_ob
             m.vertex_group = v.name
 
+        import_list.append(ob)
+
     file.close()
 
+## インポートしたオブジェクトを選択する
+    for in_ob in import_list:
+        in_ob.select = True
 
-from bpy.props import StringProperty
+    if addon_prefs.adjust_sw == True :
+        bpy.ops.transform.resize(value=(0.01,0.01,0.01))
+        bpy.ops.transform.rotate(value=1.5708, axis=(1,0,0))
+        bpy.ops.transform.mirror(constraint_axis=(True, False, False))
+        bpy.context.area.type = 'VIEW_3D'
+        bpy.ops.view3d.snap_selected_to_cursor(use_offset=True)
+        bpy.context.area.type = 'INFO'
+        bpy.ops.object.parent_set(type='OBJECT', keep_transform=False)
+
+    for in_ob in import_list:
+        in_ob.select = False
+
+
+#    basename_without_ext = os.path.splitext(os.path.basename(filename))[0]
+
+
+
+from bpy.props import StringProperty,BoolProperty
 
 class IMPORT_MABINOGI_pmg(bpy.types.Operator):
     '''Import PMG Operator.'''
@@ -373,13 +396,6 @@ class IMPORT_MABINOGI_pmg(bpy.types.Operator):
     def execute(self, context):
         load_pmg(self.filepath,
                  context)
-        bpy.ops.object.select_all(action='SELECT');
-        bpy.ops.transform.resize(value=(0.01,0.01,0.01))
-        bpy.ops.transform.rotate(value=1.5708, axis=(1,0,0))
-        bpy.ops.transform.mirror(constraint_axis=(True, False, False))
-        bpy.context.area.type = 'VIEW_3D'
-        bpy.ops.view3d.snap_selected_to_cursor(use_offset=True)
-
 
         return {'FINISHED'}
 
@@ -397,10 +413,17 @@ class IMPORT_MABINOGI_pmg_prefs(bpy.types.AddonPreferences):
         subtype='DIR_PATH'
     )
 
+    adjust_sw = BoolProperty(
+        name="Adjust",
+        default=False
+    )
+
+
     def draw(self, context):
             layout = self.layout
             layout.label(text="Import PMG preferences")
             layout.prop(self, "materials_path")
+            layout.prop(self, "adjust_sw")
 
 
 def menu_func_mabinogi_pmg(self, context):
