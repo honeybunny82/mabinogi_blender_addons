@@ -177,7 +177,7 @@ def init_material_dict(root_path):
             material_dict[mat_name] = dirpath
 
 
-def setup_material( mat_name , filename ):
+def setup_material( mat_name , filepath ):
 
     
     newmaterial = bpy.data.materials.new(mat_name)                             # マテリアルを作成
@@ -194,7 +194,7 @@ def setup_material( mat_name , filename ):
     if mat_name in material_dict:
         image = load_image(mat_name + ".dds", material_dict[mat_name], recursive=True, place_holder=True)
     else:
-        image = load_image(mat_name + ".dds", os.path.dirname(filename), recursive=True, place_holder=True)
+        image = load_image(mat_name + ".dds", os.path.dirname(filepath), recursive=True, place_holder=True)
         texture = bpy.data.textures.new(name=mat_name, type='IMAGE')
         texture.image = image
     img_node.image = image                                                     # テクスチャ設定
