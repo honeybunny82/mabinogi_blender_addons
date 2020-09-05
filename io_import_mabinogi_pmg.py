@@ -1,11 +1,15 @@
+#
+#  mabinogi .pmg import addon
+#
 bl_info= {
     "name": "Import Mabinogi Pleione Mesh Group",
     "author": "Honeybunny82",
-    "version": (0, 3),
-    "blender": (2, 5, 7),
+    "version": (0, 5),
+    "blender": (2, 80, 0),
     "location": "File > Import > Mabinogi Mesh Group (.pmg)",
     "description": "Imports a Mabinogi Mesh Group file",
     "warning": "",
+    "support": "TESTING",
     "wiki_url": "",
     "tracker_url": "",
     "category": "Import"
@@ -21,10 +25,10 @@ from bpy_extras.image_utils import load_image
 material_dict = None
 
 class Vertex:
-    x,y,z = 0,0,0
+    x,y,z = 0,0,0    # axis
     nx,ny,nz = 0,0,0 # normals
-    rgba = 0
-    u,v = 0,0
+    rgba = 0         # color
+    u,v = 0,0        # uv
 
 class Skin:
     n = 0
@@ -80,6 +84,7 @@ def load_lpstring(file):
     l = struct.unpack("<i", file.read(4))[0]
     return struct.unpack("<%ds" % l, file.read(l))[0].strip(b'\0').decode('utf-8')
 
+# 頂点データロード
 def load_vertex(file):
     new_v = Vertex()
     new_v.x, new_v.y, new_v.z = struct.unpack("<fff", file.read(12))
@@ -159,7 +164,6 @@ def load_pm20(file, pm_version=2):
         unk_string = load_lpstring(file)
     color_name = load_lpstring(file)
     pm.texture_name = load_lpstring(file)
-    print (pm.mesh_name, pm.bone_name)
     pm = load_pmbody17(file, pm)
     return pm
 
@@ -173,6 +177,78 @@ def init_material_dict(root_path):
             material_dict[mat_name] = dirpath
 
 
+def setup_material( mat_name , filename ):
+
+    
+    newmaterial = bpy.data.materials.new(mat_name)                             # マテリアルを作成
+    newmaterial.use_nodes = True                                               # ノードを使用
+    mat_nodes = newmaterial.node_tree.nodes                                    # ノード参照
+
+    for n in mat_nodes:                                                        # ノード初期化
+        mat_nodes.remove(n)
+
+    ## ノード追加：
+    ## テクスチャ、透過BSDF、プリンシプルBSDF、シェーダーミックス、シェーダー出力
+
+    img_node = mat_nodes.new(type="ShaderNodeTexImage")                        # テクスチャノード
+    if mat_name in material_dict:
+        image = load_image(mat_name + ".dds", material_dict[mat_name], recursive=True, place_holder=True)
+    else:
+        image = load_image(mat_name + ".dds", os.path.dirname(filename), recursive=True, place_holder=True)
+        texture = bpy.data.textures.new(name=mat_name, type='IMAGE')
+        texture.image = image
+    img_node.image = image                                                     # テクスチャ設定
+    trans_node = mat_nodes.new(type="ShaderNodeBsdfTransparent")               # 透過BSDFノード
+    bsdf_node = mat_nodes.new(type="ShaderNodeBsdfPrincipled")                 # プリンシプルBSDFノード
+    mix_node = mat_nodes.new(type="ShaderNodeMixShader")                       # ミックスノード
+    output_node = mat_nodes.new(type="ShaderNodeOutputMaterial")               # 出力ノード
+
+    
+    mat_link = newmaterial.node_tree.links                                     # ノードリンク参照
+
+    for n in mat_link:                                                         # ノードリンク初期化
+        mat_link.remove(n)
+
+    # ノードリンク設定
+    mat_link.new( img_node.outputs[0], bsdf_node.inputs[0])                    # Color
+    mat_link.new( img_node.outputs[1], bsdf_node.inputs[18])                   # Alpha
+    mat_link.new( trans_node.outputs[0], mix_node.inputs[1])                   # Trans Mix
+    mat_link.new( bsdf_node.outputs[0], mix_node.inputs[2])                    # bsdf Mix
+    mat_link.new( mix_node.outputs[0], output_node.inputs[0])                  # Output
+
+    # ブレンドモードをクリップ
+    newmaterial.blend_method = 'CLIP'
+    newmaterial.alpha_threshold = 0.0
+
+    # マテリアルスロットを追加する
+    bpy.ops.object.material_slot_add()
+
+    return newmaterial
+
+#------------------------------------------------------------------------------
+# Read pmgfile
+#
+#struct Header {
+#    char[4] magic // 'pmg\0'
+#    byte majorversion // 2
+#    byte minorversion // 1
+#    dword unk1
+#    char[128] name
+#    dword groupcount
+#}
+#
+#struct Group {
+#    char[64] groupname
+#    dword meshcount
+#}
+#
+#struct Mesh {
+#    dword meshdatasize
+#    char[32] meshname
+#    char[168] unk2
+#}
+#
+#------------------------------------------------------------------------------
 def load_pmg(filename,
              context):
     '''Read the PMG file.'''
@@ -180,6 +256,7 @@ def load_pmg(filename,
     name, ext= os.path.splitext(os.path.basename(filename))
     file= open(filename, 'rb')
 
+## read Header
     try:
         magic, version, head_size, mesh_name, subgroup_count = struct.unpack("<4shi128si", file.read(142))
     except:
@@ -195,6 +272,7 @@ def load_pmg(filename,
         file.close()
         return
 
+## read Group
     mesh_count = 0
     pm_subgroups_count = list()
     for i in range(subgroup_count):
@@ -204,6 +282,7 @@ def load_pmg(filename,
         mesh_count += pmCount
     print ("mesh count", mesh_count)
 
+## read Mesh
     pm_subgroups = list()
     for sg in range(subgroup_count):
         pm = list()
@@ -217,13 +296,13 @@ def load_pmg(filename,
                 print("Not a supported pm version!", pm_version)
                 file.close()
                 return
-            print("reading mesh")
             if pm_version == 1793 : pm.append(load_pm17(file))
             if pm_version == 2 : pm.append(load_pm20(file))
             if pm_version == 3 : pm.append(load_pm20(file, pm_version))
+            print ( "read mesh " ,  pm[i].mesh_name, pm[i].bone_name)
         pm_subgroups.append(pm)
 
-    addon_prefs = context.user_preferences.addons[__name__].preferences
+    addon_prefs = context.preferences.addons[__name__].preferences
     if material_dict is None:
         init_material_dict(addon_prefs.materials_path)
 
@@ -245,72 +324,67 @@ def load_pmg(filename,
                 edit_bones[bone_id] = eb[i]
         else:
             # todo: deselect
-            sel_ob.select = False
+            sel_ob.select_set(False)
             print("Selected object isn't armature")
             sel_ob = None
     scn = context.scene
     prev_ob = None
     import_list = []
+
+#Add to blender
+    print("---Add to blender---")
+
     for sgi in range(len(pm_subgroups)):
         pm = pm_subgroups[sgi]
         if prev_ob is not None:
-            prev_ob.select = False
+            prev_ob.select_set(False)
             prev_ob = None
+
         for i in range(len(pm)):
             #Add to blender
             print("adding mesh", pm[i].mesh_name)
             bmesh = bpy.data.meshes.new(pm[i].mesh_name)
-            #add vertices
+
+            # 頂点を設定
             bmesh.vertices.add(pm[i].vertCount)
             for v in range(pm[i].vertCount):
                 bmesh.vertices[v].co = (pm[i].vertexArray[v].x, pm[i].vertexArray[v].y, pm[i].vertexArray[v].z)
-            #add polygons
+
+            # ポリゴンを設定
             bmesh.polygons.add(pm[i].faceCount)
             for v in range(pm[i].faceCount):
                 bmesh.polygons[v].loop_start = v*3
                 bmesh.polygons[v].loop_total = 3
-            #add loops
+
+            # ループを設定
             bmesh.loops.add(pm[i].faceVertexCount)
             for v in range(pm[i].faceVertexCount):
                 bmesh.loops[v].vertex_index = pm[i].vertexList[v]
-            #add materials
+
+            # マテリアルを設定
             name = pm[i].texture_name
-            #image = load_image(name + ".dds", os.path.dirname(filename), recursive=True, place_holder=True)
             if name not in bpy.data.materials:
-                print("LOADING TEXTURE ", name)
-                if name in material_dict:
-                    image = load_image(name + ".dds", material_dict[name], recursive=True, place_holder=True)
-                else:
-                    image = load_image(name + ".dds", os.path.dirname(filename), recursive=True, place_holder=True)
-                texture = bpy.data.textures.new(name=name, type='IMAGE')
-                texture.image = image
-                material = bpy.data.materials.new(name=name)
-                material.use_shadeless = True
-                material.use_transparency = True
-                material.alpha = 0.0
-                mtex = material.texture_slots.add()
-                mtex.texture = texture
-                mtex.texture_coords = 'UV'
-                mtex.use_map_color_diffuse = True
-                mtex.use_map_alpha = True
+                print("-ADD MATERIAL-", name)
+                material = setup_material(name,filename)
             else:
+                print("-REF MATERIAL-", name)
                 material = bpy.data.materials[name]
-                image = material.texture_slots[0].texture.image
+
             bmesh.materials.append(material)
-            #add textures
-            bmesh.uv_textures.new()
+
+            # UVを設定
+            bmesh.uv_layers.new(name="uv0")
             uvl = bmesh.uv_layers.active.data[:]
             for v in range(pm[i].faceVertexCount):
                 idx = pm[i].vertexList[v]
                 uvl[v].uv = (pm[i].vertexArray[idx].u, 1-pm[i].vertexArray[idx].v)
-                #print(pm[i].vertexArray[idx].u,pm[i].vertexArray[idx].v)
-            for face in bmesh.uv_textures[0].data:
-                face.image = image
+
             bmesh.validate()
             bmesh.update()
+
             ob = bpy.data.objects.new(pm[i].mesh_name + "_subgroup" + str(sgi), bmesh)
             (vector, rot, scale) = pm[i].MinorMatrix.decompose()
-            #ob.location = rot * vector
+            #ob.location = rot @ vector
             if sel_ob is not None:
                 ob.parent = sel_ob
                 ob.parent_type = 'OBJECT'
@@ -318,7 +392,8 @@ def load_pmg(filename,
                 ob.matrix_world = bone_M * pm[i].MinorMatrix
             else:
                 ob.matrix_world = pm[i].MajorMatrix
-            scn.objects.link(ob)
+            scn.collection.objects.link(ob)
+
             #add skins
             skinList = list()
             for s in pm[i].skinArray:
@@ -337,13 +412,17 @@ def load_pmg(filename,
                 #if bone is None: bone = armature.bones.get('-' + pm[i].bone_name)
                 #if bone is not None:
                 #    vgroup.name = bone.name
-            ob.select = True
-            if prev_ob is not None: prev_ob.select = True
-            bpy.context.scene.objects.active = ob
+            ob.select_set(True)
+            if prev_ob is not None: prev_ob.select_set(True)
+
+            bpy.context.view_layer.objects.active = ob
             bpy.ops.object.join()
-            bpy.ops.object.mode_set(mode='EDIT')
-            bpy.ops.mesh.remove_doubles(threshold=0.1)
-            bpy.ops.object.mode_set(mode='OBJECT')
+
+### オブジェクトのクリーンナップ
+#            bpy.ops.object.mode_set(mode='EDIT')
+#            bpy.ops.mesh.remove_doubles(threshold=0.1)
+#            bpy.ops.object.mode_set(mode='OBJECT')
+
             prev_ob = ob
 
         # add armature modifiers
@@ -356,39 +435,41 @@ def load_pmg(filename,
 
     file.close()
 
-## �C���|�[�g�����I�u�W�F�N�g��I������
+## インポートしたオブジェクトを選択する
     for in_ob in import_list:
-        in_ob.select = True
+        in_ob.select_set(True)
 
     if addon_prefs.adjust_sw == True :
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
         bpy.ops.transform.resize(value=(0.01,0.01,0.01))
-        bpy.ops.transform.rotate(value=1.5708, axis=(1,0,0))
+        bpy.ops.transform.rotate(value=-1.5708, orient_axis='X')
         bpy.ops.transform.mirror(constraint_axis=(True, False, False))
-        bpy.context.area.type = 'VIEW_3D'
-        bpy.ops.view3d.snap_selected_to_cursor(use_offset=True)
-        bpy.context.area.type = 'INFO'
-        bpy.ops.object.parent_set(type='OBJECT', keep_transform=False)
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+        bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
 
     for in_ob in import_list:
-        in_ob.select = False
+        in_ob.select_set(False)
 
 
 #    basename_without_ext = os.path.splitext(os.path.basename(filename))[0]
 
 
-
 from bpy.props import StringProperty,BoolProperty
 
-class IMPORT_MABINOGI_pmg(bpy.types.Operator):
-    '''Import PMG Operator.'''
+#---------------------------------------------------------
+# オペレータークラス
+#---------------------------------------------------------
+class MABINOGI_OT_ImportPmg(bpy.types.Operator):
+
     bl_idname= "import.pmg"
     bl_label= "Import PMG"
     bl_description= "Import a Mabinogi Mesh Group file"
     bl_options= {'REGISTER', 'UNDO'}
 
-    filepath= StringProperty(name="File Path", description="Filepath used for importing the PMG file", maxlen=1024, default="")
+    filepath : StringProperty(name="File Path", description="Filepath used for importing the PMG file", maxlen=1024, default="")
     
-    filter_glob = StringProperty(
+    filter_glob : StringProperty(
         default = "*.pmg",
         options = {'HIDDEN'},
     )
@@ -405,15 +486,17 @@ class IMPORT_MABINOGI_pmg(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
-class IMPORT_MABINOGI_pmg_prefs(bpy.types.AddonPreferences):
-    '''Import PMG preferences.'''
+#---------------------------------------------------------
+# プリファレンス
+#---------------------------------------------------------
+class MABINOGI_Import_prefs(bpy.types.AddonPreferences):
     bl_idname = __name__
-    materials_path = StringProperty(
+    materials_path : StringProperty(
         name="Path to materials:",
         subtype='DIR_PATH'
     )
 
-    adjust_sw = BoolProperty(
+    adjust_sw : BoolProperty(
         name="Adjust",
         default=False
     )
@@ -426,21 +509,37 @@ class IMPORT_MABINOGI_pmg_prefs(bpy.types.AddonPreferences):
             layout.prop(self, "adjust_sw")
 
 
+#---------------------------------------------------------
+# メニュー
+#---------------------------------------------------------
 def menu_func_mabinogi_pmg(self, context):
-    self.layout.operator(IMPORT_MABINOGI_pmg.bl_idname, text="Mabinogi Mesh Group (.pmg)")
+    self.layout.separator()
+    self.layout.operator(MABINOGI_OT_ImportPmg.bl_idname, text="Mabinogi Mesh Group (.pmg)")
+
+# Blenderに登録するクラス
+classes = [
+    MABINOGI_OT_ImportPmg,
+    MABINOGI_Import_prefs,
+]
 
 def register():
+    print("Enable Mabinogi")
     global material_dict
     material_dict = None
-    bpy.utils.register_module(__name__)
 
-    bpy.types.INFO_MT_file_import.append(menu_func_mabinogi_pmg)
+    for c in classes:
+        bpy.utils.register_class(c)
+
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_mabinogi_pmg)
 
 
 def unregister():
-    bpy.utils.unregister_module(__name__)
+    print("Disable Mabinogi")
 
-    bpy.types.INFO_MT_file_import.remove(menu_func_mabinogi_pmg)
+    for c in classes:
+        bpy.utils.unregister_class(c)
+
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_mabinogi_pmg)
 
 if __name__ == "__main__":
     register()
